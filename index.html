@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}</style>
+<title>Glide Rows</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,750&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one instrument panel. A transport strip on top, then a 24-row grid whose middle column is a shared pitch/time axis: grid lines, knobs and the sweep line all live in that one column. */
+:root{
+  --bg:#E8EBF1;
+  --panel:#F8F9FC;
+  --ink:#172033;
+  --muted:#5D6779;
+  --line:#CBD2DE;
+  --grid:#DFE3EB;
+  --grid-strong:#B6BFCE;
+  --knob:#2445D6;
+  --knob-ink:#FFFFFF;
+  --head:#EE5130;
+  --display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --body:"Instrument Sans","Segoe UI",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E121A; --panel:#151A25; --ink:#E2E6EF; --muted:#8E98AA; --line:#2A3243;
+    --grid:#1D2431; --grid-strong:#384357; --knob:#7E9BFF; --knob-ink:#0E121A; --head:#FF7752;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E121A; --panel:#151A25; --ink:#E2E6EF; --muted:#8E98AA; --line:#2A3243;
+  --grid:#1D2431; --grid-strong:#384357; --knob:#7E9BFF; --knob-ink:#0E121A; --head:#FF7752;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+main{max-width:1100px;margin:0 auto;padding-block:28px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:18px}
+header{display:flex;flex-direction:column;gap:4px}
+h1{font-family:var(--display);font-weight:750;font-size:34px;line-height:1.05;letter-spacing:-.02em;margin:0;text-wrap:balance}
+.sub{margin:0;color:var(--muted);max-width:62ch}
+
+.transport{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px}
+.btn,select{font:500 14px/1 var(--body);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 13px;cursor:pointer}
+.btn:hover,select:hover{border-color:var(--grid-strong)}
+.btn:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--head);outline-offset:2px}
+.play{background:var(--knob);color:var(--knob-ink);border-color:transparent;min-width:96px;font-weight:600}
+.play:hover{border-color:transparent;filter:brightness(1.08)}
+.field{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
+.field input[type=range]{width:120px;accent-color:var(--knob)}
+.field input[type=checkbox]{accent-color:var(--knob);width:16px;height:16px;margin:0}
+.field output,.readout{font-family:var(--mono);font-size:13px;color:var(--ink);font-variant-numeric:tabular-nums}
+.field output{min-width:4.2ch}
+.spacer{flex:1 1 0}
+.readout{color:var(--muted)}
+.readout b{color:var(--head);font-weight:500}
+
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 16px 16px}
+.board{display:grid;grid-template-columns:28px minmax(0,1fr) 64px;column-gap:14px;position:relative}
+.ruler{position:relative;height:22px}
+.ruler span{position:absolute;bottom:4px;transform:translateX(-50%);font:500 10.5px/1 var(--mono);color:var(--muted);letter-spacing:.04em}
+.lane{position:relative;pointer-events:none}
+.lane.bg{z-index:0}
+.lane.fg{z-index:3}
+.gl{position:absolute;top:0;bottom:0;width:1px;background:var(--grid);transform:translateX(-.5px)}
+.gl.c{background:var(--grid-strong)}
+.num{font:400 11px/26px var(--mono);color:var(--muted);text-align:right;font-variant-numeric:tabular-nums;transition:color .2s}
+.read{font:500 12px/26px var(--mono);color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.read small{color:var(--muted);font-size:10.5px;margin-left:4px;font-weight:400}
+.track{position:relative;height:26px;cursor:pointer;touch-action:none;z-index:1}
+.track::before{content:"";position:absolute;left:0;right:0;top:50%;height:2px;margin-top:-1px;background:var(--line);border-radius:1px;transition:background .15s}
+.track:hover::before{background:var(--grid-strong)}
+.fill{position:absolute;left:0;top:50%;height:2px;margin-top:-1px;background:var(--knob);opacity:.35;border-radius:1px}
+.knob{position:absolute;top:50%;width:14px;height:14px;border-radius:50%;background:var(--knob);transform:translate(-50%,-50%);box-shadow:0 0 0 3px var(--panel);cursor:grab}
+.track.drag .knob{cursor:grabbing;transform:translate(-50%,-50%) scale(1.25)}
+.knob:focus-visible{outline:2px solid var(--head);outline-offset:3px}
+.track.hit .knob{animation:pop .45s ease-out}
+.num.hit,.read.hit{color:var(--head)}
+@keyframes pop{0%{background:var(--head);transform:translate(-50%,-50%) scale(1.8)}100%{background:var(--knob);transform:translate(-50%,-50%) scale(1)}}
+.playhead{position:absolute;top:-4px;bottom:-4px;width:2px;margin-left:-1px;background:var(--head);border-radius:1px;opacity:.3;transition:opacity .2s}
+.playhead::before{content:"";position:absolute;top:-6px;left:50%;width:10px;height:10px;margin-left:-5px;background:var(--head);clip-path:polygon(0 0,100% 0,50% 100%)}
+.playing .playhead{opacity:1;transition:none}
+
+.foot{margin:0;font-size:13px;color:var(--muted);max-width:70ch}
+kbd{font:500 11.5px/1 var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:2px 5px;background:var(--panel);color:var(--ink)}
+
+@media (max-width:560px){
+  h1{font-size:28px}
+  .board{grid-template-columns:20px minmax(0,1fr) 46px;column-gap:10px}
+  .read small{display:none}
+  .panel{padding:10px 12px 14px}
+  .spacer{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  .track.hit .knob{animation-duration:.01s}
+}
+</style>
+</head>
+<body>
+
+<main>
+  <header>
+    <h1>Glide Rows</h1>
+    <p class="sub">Each row is one note. Drag its knob left for lower, right for higher, anywhere between C3 and C6. Press play and the red line sweeps across, sounding every knob it passes.</p>
+  </header>
+
+  <div class="transport">
+    <button class="btn play" id="play" type="button">▶ Play</button>
+    <label class="field" for="sweep">Sweep <input id="sweep" type="range" min="1" max="16" step="0.5" value="4"><output id="sweepOut">4.0 s</output></label>
+    <label class="field" for="loop"><input id="loop" type="checkbox" checked> Loop</label>
+    <label class="field" for="ping"><input id="ping" type="checkbox"> Ping-pong</label>
+    <label class="field" for="snap"><input id="snap" type="checkbox"> Snap to notes</label>
+    <label class="field" for="tone">Tone
+      <select id="tone">
+        <option value="soft">Soft</option>
+        <option value="bell">Bell</option>
+        <option value="pluck">Pluck</option>
+      </select>
+    </label>
+    <span class="spacer"></span>
+    <span class="readout" id="headOut">Line at <b>C3</b></span>
+    <button class="btn" id="rising" type="button">Rising</button>
+    <button class="btn" id="scatter" type="button">Scatter</button>
+  </div>
+
+  <section class="panel" aria-label="24 pitch sliders">
+    <div class="board" id="board"></div>
+  </section>
+
+  <p class="foot"><kbd>Space</kbd> plays and stops. With a knob focused, <kbd>←</kbd> <kbd>→</kbd> move it a semitone; hold <kbd>Shift</kbd> for 10-cent steps. Ping-pong sends the line back right to left, so the return trip plays the notes falling.</p>
+</main>
+
+<script>
+(() => {
+  const ROWS = 24, LOW = 48, SPAN = 36; // C3 .. C6, continuous
+  const NAMES = ["C","C♯","D","D♯","E","F","F♯","G","G♯","A","A♯","B"];
+  const PENT = [0,2,4,7,9];
+  const STORE = "glide-rows-v1";
+
+  const $ = id => document.getElementById(id);
+  const board = $("board");
+  const playBtn = $("play"), sweep = $("sweep"), sweepOut = $("sweepOut");
+  const loopEl = $("loop"), pingEl = $("ping"), snapEl = $("snap"), toneEl = $("tone");
+  const headOut = $("headOut");
+
+  let vals = new Array(ROWS).fill(0.5);
+  const tracks = [], knobs = [], fills = [], reads = [], nums = [];
+
+  // ---------- pitch helpers ----------
+  const midiOf = v => LOW + v * SPAN;
+  const freqOf = v => 440 * Math.pow(2, (midiOf(v) - 69) / 12);
+  function nameOf(m){
+    const r = Math.round(m), c = Math.round((m - r) * 100);
+    return { note: NAMES[((r % 12) + 12) % 12] + (Math.floor(r / 12) - 1), cents: c };
+  }
+  function nearestPent(m){
+    let best = LOW, d = 1e9;
+    for (let n = LOW; n <= LOW + SPAN; n++) {
+      if (!PENT.includes(n % 12)) continue;
+      const dd = Math.abs(n - m);
+      if (dd < d) { d = dd; best = n; }
+    }
+    return best;
+  }
+
+  // ---------- build the board ----------
+  const ruler = document.createElement("div");
+  ruler.className = "ruler"; ruler.style.gridArea = "1 / 2";
+  for (let s = 0; s <= SPAN; s += 12) {
+    const sp = document.createElement("span");
+    sp.style.left = (s / SPAN * 100) + "%";
+    sp.textContent = "C" + (Math.floor((LOW + s) / 12) - 1);
+    ruler.appendChild(sp);
+  }
+  board.appendChild(ruler);
+
+  const bg = document.createElement("div");
+  bg.className = "lane bg"; bg.style.gridArea = `2 / 2 / ${ROWS + 2} / 3`;
+  for (let s = 0; s <= SPAN; s++) {
+    const g = document.createElement("div");
+    g.className = "gl" + (s % 12 === 0 ? " c" : "");
+    g.style.left = (s / SPAN * 100) + "%";
+    bg.appendChild(g);
+  }
+  board.appendChild(bg);
+
+  for (let i = 0; i < ROWS; i++) {
+    const r = i + 2;
+    const num = document.createElement("div");
+    num.className = "num"; num.style.gridArea = `${r} / 1`;
+    num.textContent = String(i + 1).padStart(2, "0");
+
+    const tr = document.createElement("div");
+    tr.className = "track"; tr.style.gridArea = `${r} / 2`;
+    const fill = document.createElement("div"); fill.className = "fill";
+    const knob = document.createElement("div");
+    knob.className = "knob"; knob.tabIndex = 0;
+    knob.setAttribute("role", "slider");
+    knob.setAttribute("aria-label", `Row ${i + 1} pitch`);
+    knob.setAttribute("aria-valuemin", "0");
+    knob.setAttribute("aria-valuemax", String(SPAN));
+    tr.append(fill, knob);
+
+    const rd = document.createElement("div");
+    rd.className = "read"; rd.style.gridArea = `${r} / 3`;
+
+    board.append(num, tr, rd);
+    tracks.push(tr); knobs.push(knob); fills.push(fill); reads.push(rd); nums.push(num);
+    bindRow(i);
+  }
+
+  const fg = document.createElement("div");
+  fg.className = "lane fg"; fg.style.gridArea = `2 / 2 / ${ROWS + 2} / 3`;
+  const head = document.createElement("div"); head.className = "playhead"; head.style.left = "0%";
+  fg.appendChild(head);
+  board.appendChild(fg);
+
+  function render(i){
+    const v = vals[i], p = (v * 100) + "%";
+    knobs[i].style.left = p; fills[i].style.width = p;
+    const { note, cents } = nameOf(midiOf(v));
+    const ctxt = cents === 0 ? "" : (cents > 0 ? "+" + cents : "−" + Math.abs(cents));
+    reads[i].innerHTML = note + (ctxt ? `<small>${ctxt}</small>` : "");
+    knobs[i].setAttribute("aria-valuenow", (v * SPAN).toFixed(2));
+    knobs[i].setAttribute("aria-valuetext", note + (ctxt ? " " + ctxt + " cents" : ""));
+  }
+  function setVal(i, v){
+    v = Math.min(1, Math.max(0, v));
+    if (snapEl.checked) v = Math.round(v * SPAN) / SPAN;
+    vals[i] = v; render(i);
+  }
+  let saveT = 0;
+  function save(){
+    clearTimeout(saveT);
+    saveT = setTimeout(() => { try { localStorage.setItem(STORE, JSON.stringify(vals)); } catch (e) {} }, 250);
+  }
+
+  // ---------- audio ----------
+  let ctx = null, master, wet;
+  function ensureAudio(){
+    if (!ctx) {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -16; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
+      master = ctx.createGain(); master.gain.value = 0.85;
+      master.connect(comp); comp.connect(ctx.destination);
+      const conv = ctx.createConvolver(); conv.buffer = impulse(2.4);
+      wet = ctx.createGain(); wet.gain.value = 0.22;
+      wet.connect(conv); conv.connect(comp);
+    }
+    if (ctx.state === "suspended") ctx.resume();
+  }
+  function impulse(sec){
+    const len = Math.floor(ctx.sampleRate * sec), b = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const d = b.getChannelData(c);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2);
+    }
+    return b;
+  }
+  const lat = () => ctx ? (ctx.outputLatency || ctx.baseLatency || 0) : 0;
+
+  function voice(f, t){
+    const tone = toneEl.value;
+    const out = ctx.createGain(); out.connect(master); out.connect(wet);
+    const env = out.gain; env.setValueAtTime(0, t);
+    let end, oscs = [];
+    if (tone === "bell") {
+      const car = ctx.createOscillator(), mod = ctx.createOscillator(), mg = ctx.createGain();
+      car.frequency.value = f; mod.frequency.value = f * 3.5;
+      mg.gain.setValueAtTime(f * 2.2, t); mg.gain.exponentialRampToValueAtTime(f * 0.05, t + 0.9);
+      mod.connect(mg); mg.connect(car.frequency); car.connect(out);
+      env.linearRampToValueAtTime(0.2, t + 0.004); env.exponentialRampToValueAtTime(0.0001, t + 1.9);
+      end = t + 2; oscs = [car, mod];
+    } else if (tone === "pluck") {
+      const o = ctx.createOscillator(), lp = ctx.createBiquadFilter();
+      o.type = "sawtooth"; o.frequency.value = f;
+      lp.type = "lowpass"; lp.Q.value = 3;
+      lp.frequency.setValueAtTime(Math.min(f * 9, 14000), t);
+      lp.frequency.exponentialRampToValueAtTime(Math.max(f * 1.1, 120), t + 0.35);
+      o.connect(lp); lp.connect(out);
+      env.linearRampToValueAtTime(0.15, t + 0.003); env.exponentialRampToValueAtTime(0.0001, t + 0.7);
+      end = t + 0.75; oscs = [o];
+    } else {
+      const o = ctx.createOscillator(), o2 = ctx.createOscillator(), g2 = ctx.createGain();
+      o.type = "triangle"; o.frequency.value = f;
+      o2.type = "sine"; o2.frequency.value = f * 2; g2.gain.value = 0.18;
+      o.connect(out); o2.connect(g2); g2.connect(out);
+      env.linearRampToValueAtTime(0.22, t + 0.008); env.exponentialRampToValueAtTime(0.0001, t + 1.2);
+      end = t + 1.25; oscs = [o, o2];
+    }
+    oscs.forEach(o => { o.start(t); o.stop(end); });
+    oscs[0].onended = () => out.disconnect();
+  }
+
+  // drag preview: one gliding tone that follows the knob
+  let prev = null;
+  function previewStart(f){
+    if (!ctx) return;
+    previewStop();
+    const o = ctx.createOscillator(), g = ctx.createGain(), now = ctx.currentTime;
+    o.type = "triangle"; o.frequency.setValueAtTime(f, now);
+    g.gain.setValueAtTime(0, now); g.gain.setTargetAtTime(0.11, now, 0.02);
+    o.connect(g); g.connect(master); g.connect(wet); o.start();
+    prev = { o, g };
+  }
+  function previewMove(f){ if (prev) prev.o.frequency.setTargetAtTime(f, ctx.currentTime, 0.025); }
+  function previewStop(){
+    if (!prev) return;
+    const now = ctx.currentTime;
+    prev.g.gain.cancelScheduledValues(now);
+    prev.g.gain.setTargetAtTime(0, now, 0.05);
+    prev.o.stop(now + 0.4);
+    prev = null;
+  }
+
+  // ---------- row interaction ----------
+  function bindRow(i){
+    const tr = tracks[i], knob = knobs[i];
+    let dragging = false;
+    const vAt = e => { const r = tr.getBoundingClientRect(); return (e.clientX - r.left) / r.width; };
+    tr.addEventListener("pointerdown", e => {
+      ensureAudio();
+      dragging = true; tr.classList.add("drag");
+      try { tr.setPointerCapture(e.pointerId); } catch (_) {}
+      knob.focus({ preventScroll: true });
+      setVal(i, vAt(e)); previewStart(freqOf(vals[i]));
+      e.preventDefault();
+    });
+    tr.addEventListener("pointermove", e => {
+      if (!dragging) return;
+      setVal(i, vAt(e)); previewMove(freqOf(vals[i]));
+    });
+    const end = () => { if (!dragging) return; dragging = false; tr.classList.remove("drag"); previewStop(); save(); };
+    tr.addEventListener("pointerup", end);
+    tr.addEventListener("pointercancel", end);
+    knob.addEventListener("keydown", e => {
+      const step = (e.shiftKey ? 0.1 : 1) / SPAN;
+      let v = vals[i];
+      if (e.key === "ArrowRight" || e.key === "ArrowUp") v += step;
+      else if (e.key === "ArrowLeft" || e.key === "ArrowDown") v -= step;
+      else if (e.key === "Home") v = 0;
+      else if (e.key === "End") v = 1;
+      else return;
+      e.preventDefault();
+      if (snapEl.checked && e.shiftKey) v = vals[i] + Math.sign(v - vals[i]) / SPAN;
+      setVal(i, v); save();
+      ensureAudio(); voice(freqOf(vals[i]), ctx.currentTime + 0.01);
+    });
+  }
+
+  function flash(i){
+    [tracks[i], nums[i], reads[i]].forEach(el => { el.classList.remove("hit"); void el.offsetWidth; el.classList.add("hit"); });
+    clearTimeout(flash.t[i]);
+    flash.t[i] = setTimeout(() => { nums[i].classList.remove("hit"); reads[i].classList.remove("hit"); }, 260);
+  }
+  flash.t = [];
+
+  // ---------- transport ----------
+  const LOOK = 0.12;
+  let playing = false, t0 = 0, dur = 4, lastAllowed = Infinity, timer = 0, raf = 0;
+  const lastPass = new Array(ROWS).fill(-1);
+  const ping = () => pingEl.checked;
+
+  function rowTime(i, k){
+    const back = ping() && (k % 2 === 1);
+    return t0 + (k + (back ? 1 - vals[i] : vals[i])) * dur;
+  }
+  function headState(now){
+    const e = (now - t0) / dur;
+    if (e < 0) return { k: 0, x: 0, fwd: true };
+    const k = Math.floor(e), f = e - k, fwd = !ping() || k % 2 === 0;
+    return { k, x: fwd ? f : 1 - f, fwd };
+  }
+  function schedule(){
+    const now = ctx.currentTime, kc = Math.max(0, Math.floor((now - t0) / dur));
+    for (let k = kc; k <= kc + 1 && k <= lastAllowed; k++) {
+      for (let i = 0; i < ROWS; i++) {
+        if (lastPass[i] >= k) continue;
+        const t = rowTime(i, k);
+        if (t < now - 0.02) { if (k === kc) lastPass[i] = k; continue; }
+        if (t < now + LOOK) {
+          const at = Math.max(t, now);
+          voice(freqOf(vals[i]), at);
+          lastPass[i] = k;
+          setTimeout(() => flash(i), Math.max(0, (at - now + lat()) * 1000));
+        }
+      }
+    }
+  }
+  // re-anchor the clock at the line's current spot (used when sweep length or direction changes mid-play)
+  function rebase(x, fwd){
+    const now = ctx.currentTime;
+    if (!ping()) fwd = true;
+    const k = fwd ? 0 : 1;
+    t0 = fwd ? now - x * dur : now - (1 + (1 - x)) * dur;
+    for (let i = 0; i < ROWS; i++) {
+      const passed = fwd ? vals[i] < x : vals[i] > x;
+      lastPass[i] = passed ? k : k - 1;
+    }
+    lastAllowed = loopEl.checked ? Infinity : (fwd && ping() ? 1 : k);
+  }
+  function draw(){
+    const now = ctx.currentTime - lat();
+    if (lastAllowed !== Infinity && now >= t0 + (lastAllowed + 1) * dur) { stop(); return; }
+    const { x } = headState(now);
+    head.style.left = (x * 100) + "%";
+    headOut.innerHTML = "Line at <b>" + nameOf(midiOf(x)).note + "</b>";
+    raf = requestAnimationFrame(draw);
+  }
+  function play(){
+    ensureAudio();
+    playing = true;
+    t0 = ctx.currentTime + 0.06;
+    lastPass.fill(-1);
+    lastAllowed = loopEl.checked ? Infinity : (ping() ? 1 : 0);
+    board.classList.add("playing");
+    playBtn.textContent = "■ Stop";
+    schedule();
+    timer = setInterval(schedule, 25);
+    raf = requestAnimationFrame(draw);
+  }
+  function stop(){
+    playing = false;
+    clearInterval(timer); cancelAnimationFrame(raf);
+    board.classList.remove("playing");
+    head.style.left = "0%";
+    headOut.innerHTML = "Line at <b>C3</b>";
+    playBtn.textContent = "▶ Play";
+  }
+  playBtn.addEventListener("click", () => playing ? stop() : play());
+  document.addEventListener("keydown", e => {
+    if (e.code !== "Space" || e.target.closest("button, select, input")) return;
+    e.preventDefault();
+    playing ? stop() : play();
+  });
+
+  sweep.addEventListener("input", () => {
+    const nd = parseFloat(sweep.value);
+    sweepOut.textContent = nd.toFixed(1) + " s";
+    if (playing) { const s = headState(ctx.currentTime); dur = nd; rebase(s.x, s.fwd); }
+    else dur = nd;
+  });
+  pingEl.addEventListener("change", () => {
+    if (!playing) return;
+    pingEl.checked = !pingEl.checked;           // read state under the old setting
+    const s = headState(ctx.currentTime);
+    pingEl.checked = !pingEl.checked;
+    rebase(s.x, s.fwd);
+  });
+  loopEl.addEventListener("change", () => {
+    if (!playing) return;
+    if (loopEl.checked) lastAllowed = Infinity;
+    else {
+      const s = headState(ctx.currentTime);
+      lastAllowed = s.k + (ping() && s.fwd ? 1 : 0); // in ping-pong, finish the return trip
+    }
+  });
+  snapEl.addEventListener("change", () => {
+    if (snapEl.checked) { for (let i = 0; i < ROWS; i++) setVal(i, vals[i]); save(); }
+  });
+
+  function rising(){
+    for (let i = 0; i < ROWS; i++) vals[i] = (nearestPent(LOW + 2 + (i / (ROWS - 1)) * (SPAN - 4)) - LOW) / SPAN;
+    vals.forEach((_, i) => render(i)); save();
+  }
+  function scatter(){
+    const pool = [];
+    for (let n = LOW; n <= LOW + SPAN; n++) if (PENT.includes(n % 12)) pool.push(n);
+    for (let i = 0; i < ROWS; i++) {
+      let m = pool[Math.floor(Math.random() * pool.length)];
+      if (!snapEl.checked && Math.random() < 0.25) m += (Math.random() - 0.5) * 0.6; // a few slightly off-grid
+      vals[i] = (m - LOW) / SPAN;
+    }
+    vals.forEach((_, i) => setVal(i, vals[i])); save();
+  }
+  $("rising").addEventListener("click", rising);
+  $("scatter").addEventListener("click", scatter);
+
+  // ---------- start ----------
+  let restored = false;
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE) || "null");
+    if (Array.isArray(s) && s.length === ROWS && s.every(n => typeof n === "number")) { vals = s.map(n => Math.min(1, Math.max(0, n))); restored = true; }
+  } catch (e) {}
+  if (restored) vals.forEach((_, i) => render(i)); else rising();
+})();
+</script>
+</body>
+</html>

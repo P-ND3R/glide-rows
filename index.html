@@ -86,6 +86,9 @@ h1{font-family:var(--display);font-weight:750;font-size:34px;line-height:1.05;le
 .playhead::before{content:"";position:absolute;top:-6px;left:50%;width:10px;height:10px;margin-left:-5px;background:var(--head);clip-path:polygon(0 0,100% 0,50% 100%)}
 .playing .playhead{opacity:1;transition:none}
 
+.export{padding-top:2px}
+.ex-label{color:var(--ink);font-weight:600}
+.ex-note{flex:1 1 260px;font-size:13px;color:var(--muted);min-width:0}
 .foot{margin:0;font-size:13px;color:var(--muted);max-width:70ch}
 kbd{font:500 11.5px/1 var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:2px 5px;background:var(--panel);color:var(--ink)}
 
@@ -132,9 +135,49 @@ kbd{font:500 11.5px/1 var(--mono);border:1px solid var(--line);border-bottom-wid
     <div class="board" id="board"></div>
   </section>
 
+  <div class="transport export">
+    <span class="field"><b class="ex-label">Export to piano roll</b></span>
+    <label class="field" for="bars">One sweep =
+      <select id="bars">
+        <option value="1">1 bar</option>
+        <option value="2" selected>2 bars</option>
+        <option value="4">4 bars</option>
+      </select>
+    </label>
+    <span class="readout" id="bpmOut">at 120 BPM</span>
+    <button class="btn" id="exportMid" type="button">Download .mid</button>
+    <span class="ex-note" id="exNote">Drag the file into FL Studio's playlist or piano roll. Notes are rounded to the nearest semitone.</span>
+  </div>
+
   <p class="foot"><kbd>Space</kbd> plays and stops. With a knob focused, <kbd>←</kbd> <kbd>→</kbd> move it a semitone; hold <kbd>Shift</kbd> for 10-cent steps. Ping-pong sends the line back right to left, so the return trip plays the notes falling.</p>
 </main>
 
+<script>
+// Standard MIDI File (format 0). notes: [{tick, len, pitch, vel}]
+function buildMidi(notes, bpm, ppq, endTick, name){
+  const bytes = [];
+  const vlq = n => { const s = [n & 0x7f]; while ((n >>= 7) > 0) s.unshift((n & 0x7f) | 0x80); return s; };
+  const str = s => Array.from(new TextEncoder().encode(s));
+  const u32 = n => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+  const ev = [];
+  for (const n of notes) {
+    ev.push({ t: n.tick, o: 1, d: [0x90, n.pitch, n.vel] });
+    ev.push({ t: n.tick + n.len, o: 0, d: [0x80, n.pitch, 0] });
+  }
+  ev.sort((a, b) => a.t - b.t || a.o - b.o); // note-offs before note-ons at the same tick
+  const mpq = Math.round(60000000 / bpm);
+  const nm = str(name);
+  const trk = [0x00, 0xff, 0x03, ...vlq(nm.length), ...nm,
+    0x00, 0xff, 0x51, 0x03, (mpq >> 16) & 255, (mpq >> 8) & 255, mpq & 255,
+    0x00, 0xff, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08];
+  let last = 0;
+  for (const e of ev) { trk.push(...vlq(e.t - last), ...e.d); last = e.t; }
+  trk.push(...vlq(Math.max(0, endTick - last)), 0xff, 0x2f, 0x00);
+  bytes.push(...str("MThd"), ...u32(6), 0, 0, 0, 1, (ppq >> 8) & 255, ppq & 255);
+  bytes.push(...str("MTrk"), ...u32(trk.length), ...trk);
+  return new Uint8Array(bytes);
+}
+</script>
 <script>
 (() => {
   const ROWS = 24, LOW = 48, SPAN = 36; // C3 .. C6, continuous
@@ -479,6 +522,30 @@ kbd{font:500 11.5px/1 var(--mono);border:1px solid var(--line);border-bottom-wid
     }
     vals.forEach((_, i) => setVal(i, vals[i])); save();
   }
+  // ---------- MIDI export ----------
+  const barsEl = $("bars"), bpmOut = $("bpmOut"), exNote = $("exNote");
+  const exportBpm = () => parseInt(barsEl.value, 10) * 4 * 60 / parseFloat(sweep.value);
+  function showBpm(){ const b = exportBpm(); bpmOut.textContent = "at " + (Number.isInteger(b) ? b : b.toFixed(2)) + " BPM"; }
+  barsEl.addEventListener("change", showBpm);
+  sweep.addEventListener("input", showBpm);
+  showBpm();
+  $("exportMid").addEventListener("click", () => {
+    const PPQ = 96, sweepTicks = parseInt(barsEl.value, 10) * 4 * PPQ, len = PPQ / 4;
+    const passes = pingEl.checked ? 2 : 1, notes = [];
+    for (let k = 0; k < passes; k++) for (let i = 0; i < ROWS; i++) {
+      const x = k === 1 ? 1 - vals[i] : vals[i];
+      const tick = Math.min(Math.round((k + x) * sweepTicks), passes * sweepTicks - len);
+      notes.push({ tick, len, pitch: Math.round(midiOf(vals[i])), vel: 100 });
+    }
+    const data = buildMidi(notes, exportBpm(), PPQ, passes * sweepTicks, "Glide Rows");
+    const url = URL.createObjectURL(new Blob([data], { type: "audio/midi" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = "glide-rows.mid";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    exNote.textContent = "Saved glide-rows.mid. Drag it into FL Studio's playlist or piano roll.";
+  });
+
   $("rising").addEventListener("click", rising);
   $("scatter").addEventListener("click", scatter);
 
